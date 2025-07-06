@@ -323,18 +323,6 @@ if __name__ == '__main__':
 
     ds = create_dataset()
     
-    if os.path.exists('CH4_loss.nc'):
-        os.remove('CH4_loss.nc')
-    ds.to_netcdf('CH4_loss.nc')
-
-    # loss_col_ch4 = column_fullchem_loss_rate()
-    # if os.path.exists('CH4_loss_annual.nc'):
-    #     os.remove('CH4_loss_annual.nc')
-    # loss_col_ch4.to_netcdf('CH4_loss_annual.nc')
-    # print('Saved netcdf of annual column methane loss rate')
-
-    # loss_col_ch4_monthly = column_loss_month(month)
-    # if os.path.exists(f'CH4_loss_{month}.nc'):
-    #     os.remove(f'CH4_loss_{month}.nc')
-    # loss_col_ch4_monthly.to_netcdf(f'CH4_loss_{month}.nc')
-    # print(f'Saved netcdf of month={month} column methane loss rate')
+    if os.path.exists(f'{base}/CH4_loss.nc'):
+        os.remove(f'{base}/CH4_loss.nc')
+    ds.to_netcdf(f'{base}/CH4_loss.nc')
