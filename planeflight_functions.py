@@ -6,9 +6,8 @@ import matplotlib.pyplot as plt
 
 def load_planeflight_ATom(rundir, campaign, region=None):
     '''
-    Reads in GEOS-Chem sampled output planeflight.log files (ATom or KORUS-AQ). 
+    Reads in GEOS-Chem sampled output planeflight.log files (ATom). 
     For ATom, groups chemical species by latitude (0-30 N/S) and pressure bins.
-    For KORUS-AQ, groups by pressure bins only.
 
     Args:
         rundir: directory containing ATom planeflight.log files
@@ -21,7 +20,6 @@ def load_planeflight_ATom(rundir, campaign, region=None):
 
     files = glob.glob(f'{rundir}/ATom_logs/ATom{campaign}/plane.ATom.log.*')
     files.sort()
-
 
     # get header from first file
     with open(files[0], 'r') as f:
@@ -106,8 +104,7 @@ def load_planeflight_ATom(rundir, campaign, region=None):
     
 def load_planeflight_KORUSAQ(rundir):
     '''
-    Reads in GEOS-Chem sampled output planeflight.log files (ATom or KORUS-AQ). 
-    For ATom, groups chemical species by latitude (0-30 N/S) and pressure bins.
+    Reads in GEOS-Chem sampled output planeflight.log files (KORUS-AQ). 
     For KORUS-AQ, groups by pressure bins only.
 
     Args:
@@ -119,7 +116,6 @@ def load_planeflight_KORUSAQ(rundir):
 
     files = glob.glob(f'{rundir}/plane.KORUSAQ.log.*')
     files.sort()
-
 
     # get header from first file
     with open(files[0], 'r') as f:
@@ -345,3 +341,14 @@ def vv_to_molec_cm3(vv, alt_km, input_units):
 
     # conc = vv_fraction * n_air
     return (np.asarray(vv) / conversion) * n_air_cm3
+
+# function to calculate k_CH4+OH given temperature in K
+def calc_k(T):
+    '''
+    Calculate the reaction rate constant k for CH4 + OH given temperature in K.
+    Constants are from rateLawUtilFuncs in KPP/fullchem
+    '''
+    A0 = 2.45e-12
+    C0 = -1775
+
+    return A0 * np.exp(C0 / T)
