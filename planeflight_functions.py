@@ -3,10 +3,11 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.constants import Boltzmann as kB
 
 def load_planeflight_ATom(rundir, campaign, region=None):
     '''
-    Reads in GEOS-Chem sampled output planeflight.log files (ATom). 
+    Reads in GEOS-Chem sampled output planeflight.log files (ATom BY CAMPAIGN). 
     For ATom, groups chemical species by latitude (0-30 N/S) and pressure bins.
 
     Args:
@@ -100,6 +101,49 @@ def load_planeflight_ATom(rundir, campaign, region=None):
     )
 
     return df_0to30N_mean, df_0to30S_mean, df_30to60N_mean
+
+
+def load_planeflight_ATom_all(rundir):
+    '''
+    Reads in GEOS-Chem sampled output planeflight.log files (ALL ATom campaigns). 
+    For ATom, groups chemical species by pressure bins.
+
+    Args:
+        rundir: directory containing ATom planeflight.log files
+
+    Returns:
+        grouped DataFrame with mean values (OHR: s-1, OH: molec/cm3, CO: ppb, temp: K) in pressure bins.
+    '''
+
+    files = glob.glob(f'{rundir}/ATom_logs/ATom*/*') # all logs from all campaigns
+    files.sort()
+
+    # get header from first file
+    with open(files[0], 'r') as f:
+        header_line = f.readline().strip().split()
+
+    cols = ['YYYYMMDD', 'HHMM', 'LAT', 'LON', 'PRESS', 'CO', 'OH', 'OHR_99999', 'GMAO_TEMP']
+    usecols = [header_line.index(col) for col in cols]
+
+    # Load all files
+    all_dfs = []
+    for f in files:
+        df = pd.read_csv(
+            f,
+            delim_whitespace=True,
+            header=0,
+            usecols=usecols,
+            names=header_line
+        )
+        all_dfs.append(df)
+
+    # Combine all into one DataFrame
+    df_all_campaigns = pd.concat(all_dfs, ignore_index=True)
+
+    # p_Pa = combined_df['PRESS'] * 100 # Pa
+    # combined_df['n_air'] = (p_Pa / (kB * combined_df['GMAO_TEMP'])) * 1e-6 # molec/cm3
+
+    return df_all_campaigns
     
     
 def load_planeflight_KORUSAQ(rundir):
