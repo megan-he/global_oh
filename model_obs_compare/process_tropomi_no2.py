@@ -261,7 +261,7 @@ def process_tropomi_file(file0):
             pxTrop_GC = gridPressure > pxTPause        # use TROPOMI tropopause
             # applying ak to GEOS-Chem results
             gridVCD_ak = sum(gridVCDL*pxAK_GC)
-            gridVCDt_ak = sum(gridVCDL[pxTrop_GC]*pxAK_GC[pxTrop_GC])
+            gridVCDt_ak = sum(gridVCDL[pxTrop_GC]*pxAK_GC[pxTrop_GC]*(pxAMF/pxAMFt)) # converts total column AK to tropospheric AK
             ### assign GEOS-Chem_ak to gridded output
             partial_output['VCD_gc_ak'][day_idx,lat_idx,lon_idx] += gridVCD_ak
             partial_output['VCDtrop_gc_ak'][day_idx,lat_idx,lon_idx] += gridVCDt_ak
@@ -270,7 +270,7 @@ def process_tropomi_file(file0):
 
 
 #######--------parallel processing--------########
-tropomi_months = pd.date_range(start='2024-10-01', end='2024-10-01', freq='MS').strftime('%Y%m').tolist() 
+tropomi_months = pd.date_range(start='2024-01-01', end='2024-12-01', freq='MS').strftime('%Y%m').tolist() 
 
 res = '4x5'
 exp = 'gc_4x5_merra2_fullchem'
