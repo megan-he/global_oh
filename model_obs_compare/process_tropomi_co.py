@@ -80,8 +80,8 @@ def read_tropomi_l2(tropomi1,tropomi2):
     
     # CO transmittance at 2335 nm is stronger than 2325?
     albedo = standard_value(tropomi2['DETAILED_RESULTS'],'surface_albedo_2335')[0,:,:]                 #2d  unitless
-    main_flag = standard_value(tropomi1,'qa_value')[0,:,:]*0.01                                                    #2d  [0,1] the larger, the better
-    # snw_flag = standard_value(tropomi2['INPUT_DATA'],'snow_ice_flag')[0,:,:]                                       #2d  unitless, 0: no snow/ice, different value indicate different status
+    main_flag = standard_value(tropomi1,'qa_value')[0,:,:]*0.01                                        #2d  [0,1] the larger, the better
+    surface_classification = standard_value(tropomi2['INPUT_DATA'],'surface_classification')[0,:,:]    #2d  unitless
 
     # Convert total column to mixing ratio using surface pressure
     g = 9.81 # m s-2
@@ -109,6 +109,7 @@ def read_tropomi_l2(tropomi1,tropomi2):
         'vza': vza,
         'main_flag': main_flag,
         'albedo': albedo,
+        'surface_classification': surface_classification,
     }
 
     return data,error,flag
@@ -175,13 +176,20 @@ def process_tropomi_file(file0):
     # (0) quality flag < 0.5
     # (1) surface albedo larger than 0.3 
     # (2) with sza larger than 80 
-    # (3) with snow_flag!=0
-    # (we need snow/ice free data, snow_flag==0 indicates snow over land, ==255 indicates snow over ocean)
-    mask_tropomi = (
+    # Also separate land and ocean pixels bc we will use different qa values
+    mask_tropomi_land = (
         (pxTROPOMI_flg['main_flag'] > 0.5) &  # clear-sky and mid-level clouds (Borsdorff et al. 2023)
         (pxTROPOMI_flg['albedo'] < 0.3) &
-        (pxTROPOMI_flg['sza'] < 80)
+        (pxTROPOMI_flg['sza'] < 80) &
+        (pxTROPOMI_flg['surface_classification'] != 1)  # exclude >50% water in pixel
     )
+    mask_tropomi_ocean = (
+        (pxTROPOMI_flg['main_flag'] == 0.7) &  # cloudy conditions only
+        (pxTROPOMI_flg['albedo'] < 0.3) &
+        (pxTROPOMI_flg['sza'] < 80) &
+        (pxTROPOMI_flg['surface_classification'] == 1)  # >50% water in pixel
+    )
+    mask_tropomi = mask_tropomi_land | mask_tropomi_ocean
     if ((mask_tropomi).sum()==0):
         print('Skipping TROPOMI (no valid obs):',file0[20:])
         return None
@@ -296,10 +304,10 @@ def process_tropomi_file(file0):
 tropomi_months = pd.date_range(start='2024-01-01', end='2024-12-01', freq='MS').strftime('%Y%m').tolist() 
 
 res = '4x5'
-exp = 'gc_4x5_merra2_fullchem'
-explabel = 'default'
-# exp = 'qfed_BB_scale'
-# explabel = 'modified'
+# exp = 'gc_4x5_merra2_fullchem'
+# explabel = 'default'
+exp = 'qfed_BB_scale'
+explabel = 'modified'
 
 tropomi_path = '/n/holylfs05/LABS/jacob_lab/Users/mhe/Obs_data/TROPOMI/CO/' # mine
 geoschem_path = '/n/holylfs06/LABS/jacob_lab2/Lab/mhe/GlobalOH/'+exp+'/OutputDir/'
