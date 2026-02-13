@@ -114,16 +114,16 @@ def read_tropomi_l2(tropomi1,tropomi2):
 
     return data,error,flag
 
-def get_gc_result(file):
-    gc = xr.open_dataset(file)
+def get_gc_result(file1, file2):
+    gc = xr.open_dataset(file1)
     gc_co_ppbv = gc['SatDiagnConc_CO'] * 1e9                           # unit: ppbv, shape: 31 x 47 x 46 x 72
     gc_co_nd = gc['SatDiagnConc_CO'] * gc['SatDiagnAirDen']             # unit: molec cm-3
     gc_co_total_col = gc_co_nd * gc['SatDiagnBoxHeight']*100                 # unit: molec cm-2
     troppause = gc['SatDiagnTROPP']                                       # unit: hPa
-    # pressure_edges = xr.open_dataset(geoschem_path+'GEOSChem.SatDiagn.'+yyyymm+'01_0000z.nc4')['SatDiagnPEdge']
-    # pressure = (pressure_edges[:,:47,:,:].drop('ilev') + pressure_edges[:,1:,:,:].drop('ilev'))/2
-    # pressure = pressure.rename({'ilev': 'lev'})
-    pressure = gc['SatDiagnPEdge']
+    pressure_edges = xr.open_dataset(file2)['SatDiagnPEDGE']
+    pressure = (pressure_edges[:,:47,:,:].drop('ilev') + pressure_edges[:,1:,:,:].drop('ilev'))/2
+    pressure = pressure.rename({'ilev': 'lev'})
+    # pressure = gc['SatDiagnPEdge']
     data = xr.Dataset({
         'co_ppbv': gc_co_ppbv,
         'co_nd': gc_co_nd,
@@ -304,10 +304,8 @@ def process_tropomi_file(file0):
 tropomi_months = pd.date_range(start='2024-01-01', end='2024-12-01', freq='MS').strftime('%Y%m').tolist() 
 
 res = '4x5'
-# exp = 'gc_4x5_merra2_fullchem'
-# explabel = 'default'
-exp = 'qfed_BB_scale'
-explabel = 'modified'
+exp = 'gc_4x5_merra2_14.7/standard'
+explabel = 'standard_v2'
 
 tropomi_path = '/n/holylfs05/LABS/jacob_lab/Users/mhe/Obs_data/TROPOMI/CO/' # mine
 geoschem_path = '/n/holylfs06/LABS/jacob_lab2/Lab/mhe/GlobalOH/'+exp+'/OutputDir/'
@@ -327,8 +325,8 @@ for yyyymm in tropomi_months:
     ### 0 ########################################
     ### prepare corresponding GEOS-Chem monthly data first
     gc_file1 = geoschem_path+'GEOSChem.SatDiagn.'+yyyymm+'01_0000z.nc4'
-    # gc_file2 = geoschem_path+'GEOSChem.SatDiagnEdge.'+gc_yyyymm+'01_0000z.nc4'
-    gridGC_monthly = get_gc_result(gc_file1)
+    gc_file2 = geoschem_path+'GEOSChem.SatDiagnEdge.'+yyyymm+'01_0000z.nc4'
+    gridGC_monthly = get_gc_result(gc_file1,gc_file2)
     ### prepare the output datasets
     gridlat = gridGC_monthly.lat.values
     gridlon = gridGC_monthly.lon.values

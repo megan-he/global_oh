@@ -93,16 +93,16 @@ def read_tropomi_l2(tropomi1,tropomi2):
            }
     return data,error,flag
 
-def get_gc_result(file):
-    gc = xr.open_dataset(file)
+def get_gc_result(file1, file2):
+    gc = xr.open_dataset(file1)
     gc_no2_pptv = gc['SatDiagnConc_NO2'] * 1e12                           # unit: pptv, shape: 31 x 47 x 91 x 144 
     gc_no2_nd = gc['SatDiagnConc_NO2'] * gc['SatDiagnAirDen']             # unit: molec cm-3
     gc_no2_vcdl = gc_no2_nd * gc['SatDiagnBoxHeight']*100                 # unit: molec cm-2
     troppause = gc['SatDiagnTROPP']                                       # unit: hPa
-    # pressure_edges = xr.open_dataset(geoschem_path+'GEOSChem.SatDiagnEdge.'+yyyymm+'01_0000z.nc4')['SatDiagnPEDGE']
-    # pressure = (pressure_edges[:,:47,:,:].drop('ilev') + pressure_edges[:,1:,:,:].drop('ilev'))/2
-    # pressure = pressure.rename({'ilev': 'lev'})
-    pressure = gc['SatDiagnPEdge']
+    pressure_edges = xr.open_dataset(file2)['SatDiagnPEDGE']
+    pressure = (pressure_edges[:,:47,:,:].drop('ilev') + pressure_edges[:,1:,:,:].drop('ilev'))/2
+    pressure = pressure.rename({'ilev': 'lev'})
+    # pressure = gc['SatDiagnPEdge']
     data = xr.Dataset({
         'no2_pptv': gc_no2_pptv,
         'no2_nd': gc_no2_nd,
@@ -192,6 +192,12 @@ def process_tropomi_file(file0):
     gridGC_data = gridGC_monthly.sel(time=date)
     day_idx = int(date[-2:])-1
 
+    # TEST
+    # if gridGC_data['pressure'] is all -999, print the date and skip the file
+    if np.all(gridGC_data['pressure'].values == -999):
+        print('-999 pressure, skip ',file0[20:], ' date:', date)
+        return None
+
     ### 5 ########################################
     ### iterate over all unique_grids of TROPOMI
     for g in range(len(unique_grids)):
@@ -273,8 +279,8 @@ def process_tropomi_file(file0):
 tropomi_months = pd.date_range(start='2024-01-01', end='2024-12-01', freq='MS').strftime('%Y%m').tolist() 
 
 res = '4x5'
-exp = 'gc_4x5_merra2_fullchem'
-explabel = 'default'
+exp = 'gc_4x5_merra2_14.7/standard'
+explabel = 'standard_v2'
 
 tropomi_path_RJ = '/n/holylfs05/LABS/jacob_lab/Users/rdang/Obs-data/TROPOMI/NO2/' # Ruijun's, 202401-202409
 tropomi_path_MH = '/n/holylfs05/LABS/jacob_lab/Users/mhe/Obs_data/TROPOMI/NO2/' # mine, 202410-202412
@@ -301,8 +307,8 @@ for yyyymm in tropomi_months:
     ### 0 ########################################
     ### prepare corresponding GEOS-Chem monthly data first
     gc_file1 = geoschem_path+'GEOSChem.SatDiagn.'+yyyymm+'01_0000z.nc4'
-    # gc_file2 = geoschem_path+'GEOSChem.SatDiagnEdge.'+gc_yyyymm+'01_0000z.nc4'
-    gridGC_monthly = get_gc_result(gc_file1)
+    gc_file2 = geoschem_path+'GEOSChem.SatDiagnEdge.'+yyyymm+'01_0000z.nc4'
+    gridGC_monthly = get_gc_result(gc_file1, gc_file2)
     ### prepare the output datasets
     gridlat = gridGC_monthly.lat.values
     gridlon = gridGC_monthly.lon.values
