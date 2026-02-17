@@ -1,0 +1,124 @@
+from pyhdf.SD import SD, SDC
+import numpy as np
+import matplotlib.pyplot as plt
+import datetime as dt
+import xarray as xr
+import os
+import re
+from scipy.interpolate import interp1d
+
+# Define scale height and surface pressure
+H = 7.5  # km
+P0 = 1013.25  # hPa
+
+def get_site_name(ftir_path):
+    filename = os.path.basename(ftir_path)
+    match = re.search(
+        r"ftir\.[^_]+_(.+?)_\d{8}t\d{6}z",
+        filename
+    )
+    site_raw = match.group(1)
+    site_clean = site_raw.replace('.', ' ').replace('_', ' ').title()
+    return site_clean
+
+def interp_to_ftir(gc_profile, p_gc, p_ftir):
+    f = interp1d(np.log(p_gc), gc_profile,
+                 bounds_error=False, fill_value="extrapolate")
+    return f(np.log(p_ftir))
+
+
+def read_gc(gc_path):
+    # Load species conc
+    speciesconc_ds = xr.open_mfdataset(gc_path + 'GEOSChem.SpeciesConc.2024*')
+    # Load met
+    met_ds = xr.open_mfdataset(gc_path + 'GEOSChem.StateMet.2024*')
+    # Calculate pressure at midpoints of model layers
+    p_mid_gc = (met_ds['hyam'] + met_ds['hybm'] * met_ds['Met_PSC2DRY']).mean(dim='time') # (lev=47, lat, lon)
+
+    gc = speciesconc_ds['SpeciesConcVV_CH2O']
+
+    return gc, p_mid_gc
+
+
+########### Set paths ############
+ftir_path = '/n/home12/mhe/lfs/Obs_data/FTIR/ftir.h2co_paramaribo_20230103t190717z_20230905t180226z_009.hdf'
+exp = 'standard'
+gc_base = f'/n/holylfs06/LABS/jacob_lab2/Lab/mhe/GlobalOH/gc_4x5_merra2_14.7/{exp}/OutputDir/'
+
+site = get_site_name(ftir_path)
+print(f'Processing site: {site}')
+
+hdf = SD(ftir_path, SDC.READ)
+
+# check units
+sds = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR')
+
+obs_h2co = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR').get()
+obs_ak = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_AVK').get()
+obs_apriori = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_APRIORI').get()
+alt  = hdf.select('ALTITUDE').get()
+if len(alt.shape) == 2:
+    alt = alt[0]
+date = hdf.select('DATETIME').get()
+# convert time
+dates = [dt.datetime(2000,1,1) + dt.timedelta(days=float(d)) for d in date]
+print(f'Range of dates in the measurement: {dates[0]}, {dates[-1]}')
+
+# mean over sampling time
+# If ppmv, we need to convert to ppbv by multiplying by 1e3.
+obs_h2co_mean = np.nanmean(obs_h2co, axis=0) # ppbv
+obs_apriori_mean = np.nanmean(obs_apriori, axis=0) # ppbv
+obs_ak_mean = np.nanmean(obs_ak, axis=0)
+if sds.attributes()['VAR_UNITS'] == 'ppbv':
+    print('This site has units of ' + sds.attributes()['VAR_UNITS'] + ' instead of ppmv.')
+elif sds.attributes()['VAR_UNITS'] == 'ppmv':
+    obs_h2co_mean *= 1e3 #ppmv -> ppbv
+    obs_apriori_mean *= 1e3 #ppmv -> ppbv    
+else:
+    raise ValueError(f"Unexpected units: {sds.attributes()['VAR_UNITS']}")
+
+z = alt
+
+site_lat =  hdf.select('LATITUDE.INSTRUMENT').get()
+site_lon = hdf.select('LONGITUDE.INSTRUMENT').get()
+print(f'site lat: {site_lat}, site lon: {site_lon}')
+
+# Load GC output
+gc, p_mid = read_gc(gc_base)
+
+# Find nearest lat/lon in GC
+gc_site = gc.sel(lat=site_lat, lon=site_lon, method='nearest') # VMR (v/v)
+gc_mean = gc_site.mean('time').squeeze()
+
+p_gc_site = p_mid.sel(lat=site_lat, lon=site_lon, method='nearest').squeeze() # 47 levels, hPa
+
+alt_gc_site = -H * np.log(p_gc_site / P0) # km
+alt_gc_site = alt_gc_site.squeeze()
+
+print(f'GC site lat: {gc_site.lat.values[0]}, GC site lon: {gc_site.lon.values[0]}')
+
+# make sure pressure is 1d
+p_gc = p_gc_site.values
+x_gc = gc_mean.values * 1e9  # ppb
+
+p_ftir = np.nanmean(hdf.select('PRESSURE_INDEPENDENT').get(), axis=0)
+x_gc_interp = interp_to_ftir(x_gc, p_gc, p_ftir)
+
+# Smoothing (Rodgers)
+x_gc_smoothed = obs_apriori_mean + obs_ak_mean @ (x_gc_interp - obs_apriori_mean)
+
+# Plot
+fig, ax = plt.subplots(1, 1, figsize=(4, 6))
+
+ax.plot(obs_h2co_mean, z, label='FTIR Retrieved', lw=3, color='black') # ppb
+ax.plot(x_gc_interp, z, '--', label='GC Raw', lw=2, color='orange') # ppb
+ax.plot(x_gc_smoothed, z, label='GC Smoothed', lw=3, color='red') # ppb
+
+plt.xlabel("HCHO (ppbv)")
+plt.ylabel("Altitude (km)")
+plt.ylim(0,40)
+plt.legend()
+plt.grid()
+plt.title(site)
+plt.tight_layout()
+plt.savefig('ftir_gc_comparison.png', dpi=300)
