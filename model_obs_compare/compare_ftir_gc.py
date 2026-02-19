@@ -5,6 +5,7 @@ import datetime as dt
 import xarray as xr
 import os
 import re
+import glob
 from scipy.interpolate import interp1d
 
 # Define scale height and surface pressure
@@ -41,84 +42,96 @@ def read_gc(gc_path):
 
 
 ########### Set paths ############
-ftir_path = '/n/home12/mhe/lfs/Obs_data/FTIR/ftir.h2co_paramaribo_20230103t190717z_20230905t180226z_009.hdf'
+ftir_base = '/n/home12/mhe/lfs/Obs_data/FTIR/'
 exp = 'standard'
 gc_base = f'/n/holylfs06/LABS/jacob_lab2/Lab/mhe/GlobalOH/gc_4x5_merra2_14.7/{exp}/OutputDir/'
 
-site = get_site_name(ftir_path)
-print(f'Processing site: {site}')
+# Collect all FTIR H2CO files
+ftir_files = sorted(glob.glob(os.path.join(ftir_base, "ftir.h2co_*.hdf")))
+nfiles = len(ftir_files)
+print(f'Found {nfiles} FTIR files.')
 
-hdf = SD(ftir_path, SDC.READ)
-
-# check units
-sds = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR')
-
-obs_h2co = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR').get()
-obs_ak = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_AVK').get()
-obs_apriori = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_APRIORI').get()
-alt  = hdf.select('ALTITUDE').get()
-if len(alt.shape) == 2:
-    alt = alt[0]
-date = hdf.select('DATETIME').get()
-# convert time
-dates = [dt.datetime(2000,1,1) + dt.timedelta(days=float(d)) for d in date]
-print(f'Range of dates in the measurement: {dates[0]}, {dates[-1]}')
-
-# mean over sampling time
-# If ppmv, we need to convert to ppbv by multiplying by 1e3.
-obs_h2co_mean = np.nanmean(obs_h2co, axis=0) # ppbv
-obs_apriori_mean = np.nanmean(obs_apriori, axis=0) # ppbv
-obs_ak_mean = np.nanmean(obs_ak, axis=0)
-if sds.attributes()['VAR_UNITS'] == 'ppbv':
-    print('This site has units of ' + sds.attributes()['VAR_UNITS'] + ' instead of ppmv.')
-elif sds.attributes()['VAR_UNITS'] == 'ppmv':
-    obs_h2co_mean *= 1e3 #ppmv -> ppbv
-    obs_apriori_mean *= 1e3 #ppmv -> ppbv    
-else:
-    raise ValueError(f"Unexpected units: {sds.attributes()['VAR_UNITS']}")
-
-z = alt
-
-site_lat =  hdf.select('LATITUDE.INSTRUMENT').get()
-site_lon = hdf.select('LONGITUDE.INSTRUMENT').get()
-print(f'site lat: {site_lat}, site lon: {site_lon}')
+fig, axes = plt.subplots(1, nfiles, figsize=(4*nfiles, 6), sharey=True)
 
 # Load GC output
 gc, p_mid = read_gc(gc_base)
 
-# Find nearest lat/lon in GC
-gc_site = gc.sel(lat=site_lat, lon=site_lon, method='nearest') # VMR (v/v)
-gc_mean = gc_site.mean('time').squeeze()
+for i, ftir_path in enumerate(ftir_files):
 
-p_gc_site = p_mid.sel(lat=site_lat, lon=site_lon, method='nearest').squeeze() # 47 levels, hPa
+    site = get_site_name(ftir_path)
+    print(f'\nProcessing site: {site}')
 
-alt_gc_site = -H * np.log(p_gc_site / P0) # km
-alt_gc_site = alt_gc_site.squeeze()
+    hdf = SD(ftir_path, SDC.READ)
 
-print(f'GC site lat: {gc_site.lat.values[0]}, GC site lon: {gc_site.lon.values[0]}')
+    # check units
+    sds = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR')
 
-# make sure pressure is 1d
-p_gc = p_gc_site.values
-x_gc = gc_mean.values * 1e9  # ppb
+    obs_h2co = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR').get()
+    obs_ak = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_AVK').get()
+    obs_apriori = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_APRIORI').get()
+    alt  = hdf.select('ALTITUDE').get()
+    if len(alt.shape) == 2:
+        alt = alt[0]
+    date = hdf.select('DATETIME').get()
+    # convert time
+    dates = [dt.datetime(2000,1,1) + dt.timedelta(days=float(d)) for d in date]
+    print(f'Range of dates in the measurement: {dates[0]}, {dates[-1]}')
 
-p_ftir = np.nanmean(hdf.select('PRESSURE_INDEPENDENT').get(), axis=0)
-x_gc_interp = interp_to_ftir(x_gc, p_gc, p_ftir)
+    # mean over sampling time
+    # If ppmv, we need to convert to ppbv by multiplying by 1e3.
+    obs_h2co_mean = np.nanmean(obs_h2co, axis=0) # ppbv
+    obs_apriori_mean = np.nanmean(obs_apriori, axis=0) # ppbv
+    obs_ak_mean = np.nanmean(obs_ak, axis=0)
+    if sds.attributes()['VAR_UNITS'] == 'ppbv':
+        print('This site has units of ' + sds.attributes()['VAR_UNITS'] + ' instead of ppmv.')
+    elif sds.attributes()['VAR_UNITS'] == 'ppmv':
+        obs_h2co_mean *= 1e3 #ppmv -> ppbv
+        obs_apriori_mean *= 1e3 #ppmv -> ppbv    
+    else:
+        raise ValueError(f"Unexpected units: {sds.attributes()['VAR_UNITS']}")
 
-# Smoothing (Rodgers)
-x_gc_smoothed = obs_apriori_mean + obs_ak_mean @ (x_gc_interp - obs_apriori_mean)
+    z = alt
 
-# Plot
-fig, ax = plt.subplots(1, 1, figsize=(4, 6))
+    site_lat =  hdf.select('LATITUDE.INSTRUMENT').get()[0]
+    site_lon = hdf.select('LONGITUDE.INSTRUMENT').get()[0]
+    print(f'site lat: {site_lat}, site lon: {site_lon}')
 
-ax.plot(obs_h2co_mean, z, label='FTIR Retrieved', lw=3, color='black') # ppb
-ax.plot(x_gc_interp, z, '--', label='GC Raw', lw=2, color='orange') # ppb
-ax.plot(x_gc_smoothed, z, label='GC Smoothed', lw=3, color='red') # ppb
+    # Find nearest lat/lon in GC
+    gc_site = gc.sel(lat=site_lat, lon=site_lon, method='nearest') # VMR (v/v)
+    gc_mean = gc_site.mean('time').squeeze()
 
-plt.xlabel("HCHO (ppbv)")
-plt.ylabel("Altitude (km)")
-plt.ylim(0,40)
-plt.legend()
-plt.grid()
-plt.title(site)
+    p_gc_site = p_mid.sel(lat=site_lat, lon=site_lon, method='nearest').squeeze() # 47 levels, hPa
+
+    alt_gc_site = -H * np.log(p_gc_site / P0) # km
+    alt_gc_site = alt_gc_site.squeeze()
+
+    print(f'GC site lat: {gc_site.lat.values[0]}, GC site lon: {gc_site.lon.values[0]}')
+
+    # make sure pressure is 1d
+    p_gc = p_gc_site.values
+    x_gc = gc_mean.values * 1e9  # ppb
+
+    p_ftir = np.nanmean(hdf.select('PRESSURE_INDEPENDENT').get(), axis=0)
+    x_gc_interp = interp_to_ftir(x_gc, p_gc, p_ftir)
+
+    # Smoothing (Rodgers)
+    x_gc_smoothed = obs_apriori_mean + obs_ak_mean @ (x_gc_interp - obs_apriori_mean)
+
+    # Plot
+    ax = axes[i]
+
+    ax.plot(obs_h2co_mean, z, label='FTIR', lw=3, color='black')
+    ax.plot(x_gc_interp, z, '--', label='GC Raw', lw=2, color='orange')
+    ax.plot(x_gc_smoothed, z, lw=3, color='red')
+
+    ax.set_title(f'{site} ({site_lat:.1f}, {site_lon:.1f})')
+    ax.set_xlabel("HCHO (ppbv)")
+    ax.set_ylim(0, 15)
+    ax.grid()
+
+    if i == 0:
+        ax.set_ylabel("Altitude (km)")
+        ax.legend()
+
 plt.tight_layout()
 plt.savefig('ftir_gc_comparison.png', dpi=300)
