@@ -69,6 +69,17 @@ for i, ftir_path in enumerate(ftir_files):
     obs_h2co = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR').get()
     obs_ak = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_AVK').get()
     obs_apriori = hdf.select('H2CO.MIXING.RATIO.VOLUME_ABSORPTION.SOLAR_APRIORI').get()
+    
+    # check units
+    # If ppmv, we need to convert to ppbv by multiplying by 1e3.
+    if sds.attributes()['VAR_UNITS'] == 'ppbv':
+        print('This site has units of ' + sds.attributes()['VAR_UNITS'] + ' instead of ppmv.')
+    elif sds.attributes()['VAR_UNITS'] == 'ppmv':
+        obs_h2co *= 1e3 #ppmv -> ppbv
+        obs_apriori *= 1e3 #ppmv -> ppbv    
+    else:
+        raise ValueError(f"Unexpected units: {sds.attributes()['VAR_UNITS']}")
+
     alt  = hdf.select('ALTITUDE').get()
     if len(alt.shape) == 2:
         alt = alt[0]
@@ -77,35 +88,53 @@ for i, ftir_path in enumerate(ftir_files):
     dates = [dt.datetime(2000,1,1) + dt.timedelta(days=float(d)) for d in date]
     print(f'Range of dates in the measurement: {dates[0]}, {dates[-1]}')
 
+    months = np.array([d.month for d in dates])
+    # equally weigh each available month in obs
+    unique_months = np.unique(months)
+
+    monthly_means_h2co = []
+    monthly_means_apriori = []
+    monthly_means_ak = []
+
+    for m in unique_months:
+        mask = months == m
+        
+        # Mean over time within this month
+        monthly_means_h2co.append(np.nanmean(obs_h2co[mask, :], axis=0))
+        monthly_means_apriori.append(np.nanmean(obs_apriori[mask, :], axis=0))
+        monthly_means_ak.append(np.nanmean(obs_ak[mask, :, :], axis=0))
+
+    monthly_means_h2co = np.array(monthly_means_h2co)
+    monthly_means_apriori = np.array(monthly_means_apriori)
+    monthly_means_ak = np.array(monthly_means_ak)
+
     # mean over sampling time
-    # If ppmv, we need to convert to ppbv by multiplying by 1e3.
-    obs_h2co_mean = np.nanmean(obs_h2co, axis=0) # ppbv
-    obs_apriori_mean = np.nanmean(obs_apriori, axis=0) # ppbv
-    obs_ak_mean = np.nanmean(obs_ak, axis=0)
-    if sds.attributes()['VAR_UNITS'] == 'ppbv':
-        print('This site has units of ' + sds.attributes()['VAR_UNITS'] + ' instead of ppmv.')
-    elif sds.attributes()['VAR_UNITS'] == 'ppmv':
-        obs_h2co_mean *= 1e3 #ppmv -> ppbv
-        obs_apriori_mean *= 1e3 #ppmv -> ppbv    
-    else:
-        raise ValueError(f"Unexpected units: {sds.attributes()['VAR_UNITS']}")
+    obs_h2co_mean = np.nanmean(monthly_means_h2co, axis=0) # ppbv
+    obs_apriori_mean = np.nanmean(monthly_means_apriori, axis=0) # ppbv
+    obs_ak_mean = np.nanmean(monthly_means_ak, axis=0)
 
     z = alt
 
     site_lat =  hdf.select('LATITUDE.INSTRUMENT').get()[0]
     site_lon = hdf.select('LONGITUDE.INSTRUMENT').get()[0]
-    print(f'site lat: {site_lat}, site lon: {site_lon}')
+    print(f'site lat: {site_lat:.2f}, site lon: {site_lon:.2f}')
 
     # Find nearest lat/lon in GC
     gc_site = gc.sel(lat=site_lat, lon=site_lon, method='nearest') # VMR (v/v)
-    gc_mean = gc_site.mean('time').squeeze()
+    
+    # select only months that were in FTIR data
+    gc_months = gc_site['time'].dt.month
+    mask_gc = gc_months.isin(unique_months)
+    gc_site_subset = gc_site.sel(time=mask_gc)
+
+    gc_mean = gc_site_subset.mean('time').squeeze()
 
     p_gc_site = p_mid.sel(lat=site_lat, lon=site_lon, method='nearest').squeeze() # 47 levels, hPa
 
     alt_gc_site = -H * np.log(p_gc_site / P0) # km
     alt_gc_site = alt_gc_site.squeeze()
 
-    print(f'GC site lat: {gc_site.lat.values[0]}, GC site lon: {gc_site.lon.values[0]}')
+    print(f'GC site lat: {gc_site.lat.values}, GC site lon: {gc_site.lon.values}')
 
     # make sure pressure is 1d
     p_gc = p_gc_site.values
@@ -122,10 +151,11 @@ for i, ftir_path in enumerate(ftir_files):
 
     ax.plot(obs_h2co_mean, z, label='FTIR', lw=3, color='black')
     ax.plot(x_gc_interp, z, '--', label='GC Raw', lw=2, color='orange')
-    ax.plot(x_gc_smoothed, z, lw=3, color='red')
+    ax.plot(x_gc_smoothed, z, label='GC Smoothed', lw=3, color='red')
 
     ax.set_title(f'{site} ({site_lat:.1f}, {site_lon:.1f})')
-    ax.set_xlabel("HCHO (ppbv)")
+    ax.set_xlabel("HCHO VMR (ppbv)")
+    ax.set_xlim(0, None)
     ax.set_ylim(0, 15)
     ax.grid()
 
