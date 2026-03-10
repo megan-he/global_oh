@@ -13,14 +13,14 @@ The full chemistry simulation therefore needs to use a tropopause-based masking 
 Adapted from Todd Mooring (7/2/25)
 '''
 
-rundir = 'gc_4x5_merra2_fullchem'
+rundir = 'gc_4x5_merra2_14.7/standard'
 
 # constants
 AVOGADRO = 6.022140857e23  # molecules/mol
 MOLAR_MASS_CH4 = 16.04      # g/mol
 SECONDS_PER_YEAR = 3600 * 24 * 365.25
 DRY_AIR_MOLAR_MASS = 28.9644  # g/mol
-YEAR = 2016
+YEAR = 2024
 
 # file paths
 base = '/n/holylfs06/LABS/jacob_lab2/Lab/mhe/GlobalOH'
@@ -39,10 +39,10 @@ def compute_ch4_mass():
     ds0 = xr.open_dataset(pattern['species_conc'].format(month=1))
     nlat = ds0.dims['lat'] # 46
     nlon = ds0.dims['lon'] # 72
-    nlev = ds0.dims['lev'] # 47
+    nlev = ds0.dims['lev'] # 72
 
-    ch4_mixr = np.full((nlon, nlat, nlev, 12), np.nan) # (72, 46, 47, 12)
-    dry_mass = np.full((nlon, nlat, nlev, 12), np.nan) # (72, 46, 47, 12)
+    ch4_mixr = np.full((nlon, nlat, nlev, 12), np.nan) # (72, 46, 72, 12)
+    dry_mass = np.full((nlon, nlat, nlev, 12), np.nan) # (72, 46, 72, 12)
 
     for m in range(1, 13):
         # mixing ratio (mol CH4 / mol dry air)
@@ -72,22 +72,22 @@ def compute_ch4_mass():
 
 # Full chemistry OH loss calculation
 def load_rxnrate_gridboxvol():
-    '''Open CH4 + OH reaction rates (EQ025) and gridbox volumes for each month.'''
+    '''Open CH4 + OH reaction rates (EQ0025) and gridbox volumes for each month.'''
 
     # get grid sizes from 1st file
     ds0 = xr.open_dataset(pattern['rxn_rates'].format(month=1))
     nlat = ds0.dims['lat'] # 46
     nlon = ds0.dims['lon'] # 72
-    nlev = ds0.dims['lev'] # 47
+    nlev = ds0.dims['lev'] # 72
 
-    rxnrate_025 = np.full((nlon, nlat, nlev, 12), np.nan) # (72, 46, 47, 12)
+    rxnrate_025 = np.full((nlon, nlat, nlev, 12), np.nan) # (72, 46, 72, 12)
     gridbox_vol = np.full_like(rxnrate_025, np.nan)
 
     for m in range(1, 13):
         fn_rxn = pattern['rxn_rates'].format(month=m)
         fn_met = pattern['state_met'].format(month=m)
         with xr.open_dataset(fn_rxn) as ds_r:
-            ds_r_transpose = ds_r['RxnRate_EQ025'].isel(time=0).transpose('lon', 'lat', 'lev').values
+            ds_r_transpose = ds_r['RxnRate_EQ0025'].isel(time=0).transpose('lon', 'lat', 'lev').values
             rxnrate_025[..., m-1] = ds_r_transpose # molec/cm3/s (NOT grid-box integrated)
         with xr.open_dataset(fn_met) as ds_m:
             ds_m_transpose = ds_m['Met_AIRVOL'].isel(time=0).transpose('lon', 'lat', 'lev').values
@@ -251,7 +251,7 @@ def column_loss_month(month):
     fn_rxn = pattern['rxn_rates'].format(month=month)
     fn_met = pattern['state_met'].format(month=month)
     with xr.open_dataset(fn_rxn) as ds_r, xr.open_dataset(fn_met) as ds_m:
-        dr = ds_r['RxnRate_EQ025'].isel(time=0).transpose('lon','lat','lev')
+        dr = ds_r['RxnRate_EQ0025'].isel(time=0).transpose('lon','lat','lev')
         dv = ds_m['Met_AIRVOL'].isel(time=0).transpose('lon','lat','lev')
         area2d = ds_r['AREA'].isel(lev=0) if 'lev' in ds_r['AREA'].dims else ds_r['AREA']
         area = area2d.values  # (lat, lon)
@@ -317,12 +317,14 @@ if __name__ == '__main__':
     loss = fullchem_loss_rate()
     lifetime_s = ch4_mass / loss
     lifetime_yr = lifetime_s / SECONDS_PER_YEAR
+    print('Year:', YEAR)
+    print('Rundir:', rundir)
     print(f"Fullchem_4x5 CH4 mass: {ch4_mass:.3e} kg")
     print(f"Fullchem_4x5 CH4 lifetime: {lifetime_yr:.3f} years")
     print(f"Fullchem_4x5 CH4 tropospheric OH loss rate: {loss:.3e} kg/s")
 
     ds = create_dataset()
     
-    if os.path.exists(f'{base}/CH4_loss.nc'):
-        os.remove(f'{base}/CH4_loss.nc')
-    ds.to_netcdf(f'{base}/CH4_loss.nc')
+    if os.path.exists(f'{base}/{rundir}/CH4_loss.nc'):
+        os.remove(f'{base}/{rundir}/CH4_loss.nc')
+    ds.to_netcdf(f'{base}/{rundir}/CH4_loss.nc')
