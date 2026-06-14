@@ -139,7 +139,7 @@ def get_gc_result(file1,file2):
     gc_hcho_vcdl = gc_hcho_nd * gc['SatDiagnBoxHeight']*100                 # unit: molec cm-2
     troppause = gc['SatDiagnTROPP']                                       # unit: hPa
     pressure_edges = xr.open_dataset(file2)['SatDiagnPEDGE']
-    pressure = (pressure_edges[:,:47,:,:].drop('ilev') + pressure_edges[:,1:,:,:].drop('ilev'))/2
+    pressure = (pressure_edges[:,:72,:,:].drop('ilev') + pressure_edges[:,1:,:,:].drop('ilev'))/2
     pressure = pressure.rename({'ilev': 'lev'})
     # pressure = gc['SatDiagnPEdge']
     data = xr.Dataset({
